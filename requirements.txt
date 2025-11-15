@@ -1,0 +1,5 @@
+# Blender 4.4 built-in Python
+# No external dependencies
+
+# Для работы скриптов ничего не требуется
+# Зависимости: отсутствуют

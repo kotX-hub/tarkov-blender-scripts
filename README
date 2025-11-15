@@ -1,0 +1,43 @@
+# Tarkov / Blender Scripts
+
+Набор скриптов для автоматизации работы в Blender (4.x):
+- импорт и конверт материалов из Unity/AssetStudio
+- чистка сцен из Escape from Tarkov
+- раскладка объектов по сетке
+- линковка одинаковых мешей и т.п.
+
+## Требования
+
+- Blender 4.4 (часть скриптов может работать и в 3.6, но не гарантированно)
+- Python, встроенный в Blender
+
+## Скрипты
+
+### `unity_material_converter_bl44.py`
+Конвертирует материалы из сцен, экспортированных через AssetStudio/AssetRipper:
+- создаёт нод-группу `Unpack.Unity.Normal`
+- правит Base Color / Specular / Roughness
+- отключает лишний metallic, puddles делает как зеркала и т.д.
+
+### `remove_objects_by_regex.py`
+Чистит сцену от:
+- коллайдеров (`COLLIDER`, `BAL(L)ISTIC`…)
+- триггеров (`TRIGGER`, `TRG`…)
+- LOD1-4
+- стенсилов/теневых мешей (`SHADOW`, `Stencil`) и т.п.
+
+### `link_objdata_same_models.py`
+Находит одинаковую геометрию и линкует `object.data`, уменьшая число уникальных мешей.
+
+### `layout_objects_on_grid.py`
+Раскладывает выбранные объекты по сетке в мировых координатах.
+
+### Как запускать скрипт в Blender
+
+1. **Scripting** → **Text Editor** → `Open` → выбрать нужный `.py` из этого репозитория.
+2. При необходимости настроить параметры вверху файла.
+3. Нажать **Run Script**.
+
+## Лицензия
+
+MIT
