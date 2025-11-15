@@ -1,0 +1,313 @@
+## this script is used to convert materials in an imported unity scene
+## the scene is expected to be exported as an fbx with AssetStudioGUI
+
+import bpy
+
+# ---- version check: script рассчитан на Blender 4.0+ ----
+if bpy.app.version < (4, 0, 0):
+    raise Exception("This script requires Blender 4.0 or newer")
+
+
+# ---- unity normal maps are packed in a specific way, this creates a node setup that unpacks them ----
+def create_nodegroup_normal_converter():
+    tree = bpy.data.node_groups.new('Unpack.Unity.Normal', 'ShaderNodeTree')
+
+    # --- define group interface (новый API 4.x) ---
+    color_input = tree.interface.new_socket(
+        name="Color",
+        description="Packed Unity normal RGB",
+        in_out='INPUT',
+        socket_type='NodeSocketColor',
+    )
+    color_input.default_value = (0.5, 0.5, 1.0, 1.0)
+
+    alpha_input = tree.interface.new_socket(
+        name="Alpha",
+        description="Packed Unity normal alpha",
+        in_out='INPUT',
+        socket_type='NodeSocketFloat',
+    )
+    alpha_input.default_value = 1.0
+
+    color_output = tree.interface.new_socket(
+        name="Color",
+        description="Unpacked normal",
+        in_out='OUTPUT',
+        socket_type='NodeSocketVector',
+    )
+
+    nodes = tree.nodes
+    links = tree.links
+
+    inputs = nodes.new('NodeGroupInput')
+    inputs.location = (-300, -300)
+
+    xy = inputs.location
+    offset = 40
+
+    n0 = nodes.new('ShaderNodeSeparateRGB')
+    n0.location = xy
+    n0.location.x += offset + inputs.width
+    links.new(inputs.outputs[0], n0.inputs[0])
+
+    n1 = nodes.new('ShaderNodeCombineRGB')
+    n1.location = n0.location
+    n1.location.x += offset + n0.width
+    n1.inputs[2].default_value = 1
+    links.new(n0.outputs[1], n1.inputs[0])
+    links.new(inputs.outputs[1], n1.inputs[1])
+
+    n2 = nodes.new('ShaderNodeSeparateXYZ')
+    n2.location = n1.location
+    n2.location.x += offset + n1.width
+    links.new(n1.outputs[0], n2.inputs[0])
+
+    n3 = nodes.new('ShaderNodeMapRange')
+    n3.location = n2.location
+    n3.location.x += offset + n2.width
+    n3.location.y -= offset + n2.height
+    n3.data_type = 'FLOAT'
+    n3.inputs[1].default_value = 0
+    n3.inputs[2].default_value = 1
+    n3.inputs[3].default_value = -1
+    n3.inputs[4].default_value = 1
+    links.new(n2.outputs[0], n3.inputs[0])
+
+    n4 = nodes.new('ShaderNodeMath')
+    n4.location = n3.location
+    n4.location.x += offset + n3.width
+    n4.operation = 'MULTIPLY'
+    links.new(n3.outputs[0], n4.inputs[0])
+    links.new(n3.outputs[0], n4.inputs[1])
+
+    n5 = nodes.new('ShaderNodeMath')
+    n5.location = n4.location
+    n5.location.x += offset + n4.width
+    n5.operation = 'SUBTRACT'
+    n5.inputs[0].default_value = 1
+    links.new(n4.outputs[0], n5.inputs[1])
+
+    n6 = nodes.new('ShaderNodeMapRange')
+    n6.location = n4.location
+    n6.location.y -= offset + n4.height
+    n6.data_type = 'FLOAT'
+    n6.inputs[1].default_value = 0
+    n6.inputs[2].default_value = 1
+    n6.inputs[3].default_value = -1
+    n6.inputs[4].default_value = 1
+    links.new(n2.outputs[1], n6.inputs[0])
+
+    n7 = nodes.new('ShaderNodeMath')
+    n7.location = n5.location
+    n7.location.y -= offset + n5.height
+    n7.operation = 'MULTIPLY'
+    links.new(n6.outputs[0], n7.inputs[0])
+    links.new(n6.outputs[0], n7.inputs[1])
+
+    n8 = nodes.new('ShaderNodeMath')
+    n8.location = n5.location
+    n8.location.x += offset + n5.width
+    n8.location.y -= offset
+    n8.operation = 'SUBTRACT'
+    links.new(n5.outputs[0], n8.inputs[0])
+    links.new(n7.outputs[0], n8.inputs[1])
+
+    n9 = nodes.new('ShaderNodeMath')
+    n9.location = n8.location
+    n9.location.x += offset + n8.width
+    n9.operation = 'POWER'
+    n9.inputs[1].default_value = 0.5
+    links.new(n8.outputs[0], n9.inputs[0])
+
+    n10 = nodes.new('ShaderNodeMapRange')
+    n10.location = n9.location
+    n10.location.x += offset + n9.width
+    n10.data_type = 'FLOAT'
+    n10.inputs[1].default_value = -1
+    n10.inputs[2].default_value = 1
+    n10.inputs[3].default_value = 0
+    n10.inputs[4].default_value = 1
+    links.new(n9.outputs[0], n10.inputs[0])
+
+    n11 = nodes.new('ShaderNodeInvert')
+    n11.location = n10.location
+    n11.location.x += offset + n10.width
+    n11.inputs[0].default_value = 1
+    links.new(n2.outputs[1], n11.inputs[1])
+
+    n12 = nodes.new('ShaderNodeCombineXYZ')
+    n12.location = n11.location
+    n12.location.x += offset + n11.width
+    n12.location.y = n2.location.y
+    links.new(n2.outputs[0], n12.inputs[0])
+    links.new(n11.outputs[0], n12.inputs[1])
+    links.new(n10.outputs[0], n12.inputs[2])
+
+    outputs = nodes.new('NodeGroupOutput')
+    outputs.location = n12.location
+    outputs.location.x += offset + n12.width
+    outputs.location.y = n12.location.y
+    links.new(n12.outputs[0], outputs.inputs[0])
+
+    return tree
+
+
+ng_converter = None
+for ng in bpy.data.node_groups:
+    if ng.name == "Unpack.Unity.Normal":
+        ng_converter = ng
+        break
+if ng_converter is None:
+    ng_converter = create_nodegroup_normal_converter()
+
+
+def get_connected_link(nodes, inputSocket):
+    for n in nodes:
+        for socket in n.outputs:
+            for l in socket.links:
+                if l.to_socket == inputSocket:
+                    return l
+    return None
+
+
+def convert_normalmap(tree, nodeImageTexture, socketInputNormalMap):
+    ng = tree.nodes.new('ShaderNodeGroup')
+    ng.node_tree = ng_converter
+    ng.location.x = nodeImageTexture.location.x + 300
+    ng.location.y = nodeImageTexture.location.y
+    tree.links.new(nodeImageTexture.outputs[0], ng.inputs[0])
+    tree.links.new(nodeImageTexture.outputs[1], ng.inputs[1])
+
+    tree.links.new(ng.outputs[0], socketInputNormalMap)
+
+
+def check_normalmap_valid(tree, socketNormal):
+    link_normal = get_connected_link(tree.nodes, socketNormal)
+    if link_normal is None:
+        return None
+
+    socket_color = link_normal.from_node.inputs[1]
+    if socket_color is None:
+        return None
+
+    link_image_normal = get_connected_link(tree.nodes, socket_color)
+    if link_image_normal is None:
+        return None
+
+    if link_image_normal.from_node.type != 'TEX_IMAGE':
+        return None
+
+    return link_image_normal
+
+
+mat_num = 0
+
+for m in bpy.data.materials:
+    if not m.use_nodes:
+        continue
+
+    # ---- disable transparency overlap / backface behavior for transparent ----
+    if hasattr(m, "use_transparency_overlap"):
+        m.use_transparency_overlap = False
+
+    tree = m.node_tree
+    bsdf = None
+    for n in tree.nodes:
+        if n.type == "BSDF_PRINCIPLED":
+            bsdf = n
+            break
+    if bsdf is None:
+        continue
+
+    # ---- Blender 4.x Principled sockets by NAME ----
+    socketBaseColor        = bsdf.inputs["Base Color"]
+    socketMetal            = bsdf.inputs["Metallic"]
+    socketRough            = bsdf.inputs["Roughness"]
+    socketAlpha            = bsdf.inputs["Alpha"]
+    socketNormal           = bsdf.inputs["Normal"]
+    socketTransmission     = bsdf.inputs["Transmission Weight"]
+    socketEmissionStrength = bsdf.inputs["Emission Strength"]
+    socketSpec             = bsdf.inputs["Specular IOR Level"]
+
+    # telling blender that the alpha channel in diffuse texture is not alpha channel
+    link = get_connected_link(tree.nodes, socketBaseColor)
+    if link:
+        node_tex = link.from_node
+        if getattr(node_tex, "image", None):
+            node_tex.image.alpha_mode = 'CHANNEL_PACKED'
+
+        bc = socketBaseColor.default_value
+        if bc[0] != 1 or bc[1] != 1 or bc[2] != 1 or bc[3] != 1:
+            print("mat %d base color: %f %f %f %f" % (mat_num, bc[0], bc[1], bc[2], bc[3]))
+            # mix node_tex by base color default value
+            n = tree.nodes.new('ShaderNodeMixRGB')
+            n.location = node_tex.location
+            n.blend_type = 'MULTIPLY'
+            n.inputs[0].default_value = 1
+            tree.links.new(node_tex.outputs[0], n.inputs[1])
+            n.inputs[2].default_value = socketBaseColor.default_value
+            tree.links.new(n.outputs[0], socketBaseColor)
+            node_tex.location.x -= 300
+
+    # metallic to 0.00
+    socketMetal.default_value = 0.0
+    r = socketRough.default_value
+
+    # in blender it's roughness, in unity it's glossiness, so have to invert
+    # and for some reason the value is between 0.9 and 1.0
+    # but in some materials the roughness value is normalized between 0.0-1.0
+    # i dont know whats going on, not sure i got this right
+    if r > 0.9:
+        r = r - 0.9
+        r = r * 10
+
+    r = 1 - r
+    socketRough.default_value = r
+
+    # flag to skip specular conversion if the material has transparency
+    alpha_keywords = [
+        'decal', 'dekal', 'puddle', 'graffiti', 'grafiti',
+        'paintcrack', 'wall_crack', 'spiral_bruno', 'chain'
+    ]
+    has_alpha_channel = any(keyword in m.name.lower() for keyword in alpha_keywords)
+    if not has_alpha_channel and link is not None:
+        tex_name = getattr(getattr(link.from_node, "image", None), "name", "") or ""
+        has_alpha_channel = any(keyword in tex_name.lower() for keyword in alpha_keywords)
+
+    socketEmissionStrength.default_value = 0.0
+
+    # в 4.4 shadow_method больше нет, а blend_method ещё жив
+    if hasattr(m, "blend_method"):
+        m.blend_method = 'CLIP'
+    if hasattr(m, "shadow_method"):
+        m.shadow_method = 'CLIP'
+
+    socketSpec.default_value = 0.5
+
+    # replugging diffuse's alpha to specular, by default blender plugs it in BSDF alpha
+    if not has_alpha_channel:
+        linkAlpha = get_connected_link(tree.nodes, socketAlpha)
+        if linkAlpha is not None:
+            tex_d = linkAlpha.from_node
+            tree.links.new(tex_d.outputs[1], socketSpec)
+            tree.links.remove(linkAlpha)
+
+    # puddles are just mirrors
+    is_puddle = 'puddle' in m.name.lower()
+    if is_puddle:
+        # remove diffuse texture link
+        linkDiffuse = get_connected_link(tree.nodes, socketBaseColor)
+        if linkDiffuse is not None:
+            tree.links.remove(linkDiffuse)
+
+        socketBaseColor.default_value = (1, 1, 1, 1)
+        socketTransmission.default_value = 1.0
+
+    # convert normal map
+    link_image_normal = check_normalmap_valid(tree, socketNormal)
+    if link_image_normal is not None:
+        convert_normalmap(tree, link_image_normal.from_node, link_image_normal.to_socket)
+
+    mat_num += 1
+    
+print(f"Successfully converted {mat_num} materials")
